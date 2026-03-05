@@ -1,5 +1,6 @@
 fastapi
-uvicorn
+uvicorn[standard]
+gunicorn
 google-generativeai
 python-dotenv
 pydantic
@@ -8,3 +9,6 @@ python-multipart
 slowapi
 pytest
 httpx
+Jinja2
+pillow
+aiofiles

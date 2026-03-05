@@ -100,6 +100,74 @@ The application will start automatically at `http://127.0.0.1:8000`
 
 ---
 
+## 🌐 Hosting & Deployment
+
+### Option 1: Railway (Recommended - Free)
+Railway offers free hosting with automatic deployments from GitHub.
+
+1. **Connect Repository**
+   - Go to [Railway.app](https://railway.app)
+   - Sign up/Login with GitHub
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select your `Hiremate_AI` repository
+
+2. **Configure Environment Variables**
+   - Go to your project settings
+   - Add environment variable: `GEMINI_API_KEY=your_api_key_here`
+
+3. **Deploy**
+   - Railway will automatically detect `railway.json` and deploy
+   - Your app will be live at `https://your-project-name.up.railway.app`
+
+### Option 2: Render (Free Tier Available)
+Render provides free web service hosting.
+
+1. **Connect Repository**
+   - Go to [Render.com](https://render.com)
+   - Sign up/Login
+   - Click "New +" → "Web Service"
+   - Connect your GitHub repo
+
+2. **Configure Build Settings**
+   - **Runtime**: Python 3
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python -m uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+3. **Add Environment Variables**
+   - `GEMINI_API_KEY=your_api_key_here`
+   - `ENVIRONMENT=production`
+
+### Option 3: Docker Deployment
+Deploy anywhere that supports Docker.
+
+```bash
+# Build and run locally
+docker-compose up --build
+
+# Or build manually
+docker build -t hiremate-ai .
+docker run -p 8000:8000 -e GEMINI_API_KEY=your_key hiremate-ai
+```
+
+### Option 4: Heroku
+```bash
+# Install Heroku CLI
+heroku create your-app-name
+heroku config:set GEMINI_API_KEY=your_api_key_here
+git push heroku main
+```
+
+### Option 5: Vercel (Frontend Only)
+Vercel can host the API, but file uploads may have limitations.
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+vercel --prod
+```
+
+---
+
 ## 📦 Installation
 
 ### 1. Clone the Repository
