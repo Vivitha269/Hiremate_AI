@@ -13,6 +13,22 @@ HireMate AI is a smart resume analysis tool that matches your resume against job
 
 ---
 
+## 📋 Table of Contents
+- [Features](#✨-features)
+- [Tech Stack](#-tech-stack)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Usage](#-usage)
+- [API Endpoints](#-api-endpoints)
+- [Project Structure](#-project-structure)
+- [Testing](#-testing)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+---
+
 ## ✨ Features
 
 ### 📊 Resume Analysis
@@ -23,31 +39,313 @@ HireMate AI is a smart resume analysis tool that matches your resume against job
 - **Cover Letters** - Create tailored cover letters for specific job applications
 - **Resume Tips** - Get actionable suggestions to improve your resume
 
-### 📄 Resume Generator (NEW!)
+### 📄 Resume Generator
 - **5 Unique Templates** - Modern, Classic, Technical, Executive, Entry-Level
 - **Photo Support** - Add your photo to resumes (optional)
 - **Custom Colors** - Choose from 6 accent colors
 - **Live Preview** - See your resume before downloading
 - **PDF Export** - Download professional resumes instantly
 
-### 🎤 Interview Preparation (NEW!)
+### 🎤 Interview Preparation
 - **AI Interview Questions** - Generate personalized questions based on your resume and target job
 - **Technical Questions** - Job-specific technical queries
 - **Behavioral Questions** - Situational and experience-based questions
 - **Answer Guidance** - Tips on how to answer each question
 - **Sample Answers** - Example responses for reference
 
-### 📚 Skills Gap Analysis (NEW!)
+### 📚 Skills Gap Analysis
 - **Missing Skills Detection** - Identify skills you need to develop
 - **Learning Resources** - Get course and tutorial recommendations
 - **Priority Ranking** - Know which skills to learn first
 - **Gap Score** - Measure your readiness for the role
 
-### ⚖️ Resume Comparison (NEW!)
+### ⚖️ Resume Comparison
 - **Ideal Resume Match** - Compare your resume against the ideal
 - **Keyword Analysis** - See which keywords you're missing
 - **Improvement Suggestions** - Get actionable recommendations
 - **Side-by-Side Comparison** - Visual breakdown of strengths and gaps
+
+---
+
+## 🛠 Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| **Backend** | Python 3.11+, FastAPI, Uvicorn |
+| **AI Model** | Google Gemini 2.0 Flash |
+| **Frontend** | HTML5, CSS3, JavaScript |
+| **PDF Processing** | PyPDF2 |
+| **Rate Limiting** | SlowAPI |
+| **API Documentation** | Swagger UI, ReDoc |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.11 or higher
+- Google Gemini API Key (free at [AI Studio](https://aistudio.google.com/app/apikey))
+- Git
+
+### One-Command Setup
+```bash
+# Windows
+run.bat
+
+# Linux/Mac
+bash run.sh
+```
+
+The application will start automatically at `http://127.0.0.1:8000`
+
+---
+
+## 📦 Installation
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Vivitha269/Hiremate_AI.git
+cd Hiremate_AI
+```
+
+### 2. Create Virtual Environment
+```bash
+# Windows
+python -m venv venv
+venv\Scripts\activate
+
+# Linux/Mac
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure Environment Variables
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your Google Gemini API Key
+# GEMINI_API_KEY=your_api_key_here
+```
+
+### 5. Run the Application
+```bash
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Visit `http://127.0.0.1:8000` in your browser
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables (.env)
+```env
+# Google Gemini API Configuration
+GEMINI_API_KEY=your_api_key_here
+
+# Application Settings
+API_TITLE=HireMate AI
+API_VERSION=2.0.0
+ENVIRONMENT=development
+
+# Server Settings
+HOST=127.0.0.1
+PORT=8000
+```
+
+### Get Google Gemini API Key
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click "Create API Key"
+3. Copy your API key
+4. Paste it in the `.env` file as `GEMINI_API_KEY`
+
+---
+
+## 📖 Usage
+
+### Web Interface
+Open `http://127.0.0.1:8000` in your browser to access the interactive frontend.
+
+### API Documentation
+- **Swagger UI**: `http://127.0.0.1:8000/api/docs`
+- **ReDoc**: `http://127.0.0.1:8000/api/redoc`
+
+---
+
+## 📡 API Endpoints
+
+### Resume Analysis
+```bash
+POST /api/analyze
+Parameters:
+  - resume_file: PDF file (multipart)
+  - job_description: string
+Returns: Match score, ATS score, missing skills, tips
+```
+
+### Resume Generation
+```bash
+POST /api/resume/generate
+Body: ResumeGenerateRequest
+  - template: string (modern, classic, technical, executive, entry-level)
+  - resume_data: object
+  - accent_color: string (hex color)
+Returns: PDF resume as file download
+```
+
+### Interview Questions
+```bash
+POST /api/interview/questions
+Body: InterviewQuestionsRequest
+  - resume_text: string
+  - job_description: string
+  - num_questions: integer
+Returns: List of AI-generated interview questions
+```
+
+### Skills Gap Analysis
+```bash
+POST /api/skills/gap-analysis
+Body: SkillsGapAnalysisRequest
+  - current_skills: list
+  - required_skills: list
+  - job_title: string
+Returns: Gap analysis with learning resources
+```
+
+### Resume Comparison
+```bash
+POST /api/resume/compare
+Body: ResumeComparisonRequest
+  - user_resume_text: string
+  - ideal_resume_text: string
+Returns: Comparison metrics and suggestions
+```
+
+### Health Check
+```bash
+GET /api/health
+Returns: Application status and version
+```
+
+---
+
+## 📁 Project Structure
+
+```
+Hiremate_AI/
+├── main.py                 # FastAPI application entry point
+├── config.py              # Configuration and logging setup
+├── exceptions.py          # Custom exception classes
+├── models.py              # Pydantic request/response models
+├── gemini_service.py      # Google Gemini API integration
+├── pdf_utils.py           # PDF parsing utilities
+├── skill_engine.py        # Skill matching algorithms
+├── resume_generator.py    # Resume PDF generation
+├── index.html             # Frontend web interface
+├── test_main.py           # Unit tests
+├── requirements.txt       # Python dependencies
+├── .env                   # Environment variables (confidential)
+├── .env.example          # Example environment file
+├── .gitignore            # Git ignore rules
+├── run.bat               # Windows startup script
+├── run.sh                # Linux/Mac startup script
+├── LICENSE               # MIT License
+├── README.md             # This file
+└── TODO.md               # Implementation roadmap
+```
+
+---
+
+## 🧪 Testing
+
+### Run Unit Tests
+```bash
+pytest test_main.py -v
+```
+
+### Test API Endpoints
+Use the Swagger UI at `http://127.0.0.1:8000/api/docs` to test endpoints interactively.
+
+---
+
+## 🔧 Troubleshooting
+
+### Issue: `ModuleNotFoundError`
+**Solution:** Ensure virtual environment is activated and dependencies are installed
+```bash
+pip install -r requirements.txt
+```
+
+### Issue: `GEMINI_API_KEY not found`
+**Solution:** Create `.env` file with your API key
+```bash
+cp .env.example .env
+# Edit .env and add your GEMINI_API_KEY
+```
+
+### Issue: Port 8000 already in use
+**Solution:** Use a different port
+```bash
+python -m uvicorn main:app --host 127.0.0.1 --port 8001
+```
+
+### Issue: PDF Upload Fails
+**Solution:** Ensure PDF file is:
+- Less than 5MB
+- Valid PDF format
+- Not password protected
+
+### Issue: Slow Response Times
+**Solution:** 
+- Check internet connection (API calls to Google Gemini)
+- Reduce job description length (max 10,000 chars)
+- Wait for rate limiting cooldown (10 requests/minute)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 📞 Support
+
+For issues, questions, or suggestions:
+- Open an issue on [GitHub Issues](https://github.com/Vivitha269/Hiremate_AI/issues)
+- Check existing [documentation](https://github.com/Vivitha269/Hiremate_AI/wiki)
+
+---
+
+## 🌟 Acknowledgments
+
+- Google Gemini API for AI capabilities
+- FastAPI for the web framework
+- PyPDF2 for PDF processing
+- The open-source community
+
+---
+
+**Made with ❤️ by Vivitha**
 
 ---
 
@@ -258,8 +556,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 👨‍💻 Author
 
 **Your Name**
-- GitHub: [@yourusername](https://github.com/yourusername)
-- LinkedIn: [Your LinkedIn](https://linkedin.com/in/yourprofile)
+- GitHub: [Vivitha](https://github.com/Vivitha269)
+- LinkedIn: [Vivitha](https://www.linkedin.com/in/a-vivitha-a-vivitha-36227730a?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
 
 ---
 
