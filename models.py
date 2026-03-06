@@ -162,15 +162,15 @@ class ResumeParseRequest(BaseModel):
 
 class ResumeParseResponse(BaseModel):
     """Response model for parsed resume data."""
-    full_name: str
-    email: str
-    phone: str
-    location: str
-    linkedin: str
-    summary: str
-    skills: List[str]
-    experience: List[Dict[str, Any]]
-    education: List[Dict[str, Any]]
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+    summary: str = ""
+    skills: Any = []  # Can be list or string
+    experience: Any = []  # Can be list or string
+    education: Any = []  # Can be list or string
 
 
 # ==================== Interview Questions Models ====================
@@ -252,4 +252,64 @@ class ResumeComparisonResponse(BaseModel):
     keyword_analysis: Dict[str, List[str]]  # found, missing
     improvement_suggestions: List[str]
     ideal_resume_summary: str
+
+
+# ==================== Unified Analysis Models ====================
+
+class ResumeModificationSuggestion(BaseModel):
+    """AI suggestion for resume modification."""
+    category: str  # summary, skills, experience, achievements, keywords
+    title: str
+    current_content: str
+    suggested_content: str
+    reason: str
+    priority: str  # high, medium, low
+    impact_score: float  # 0-100, how much this improves the resume
+
+
+class UnifiedAnalysisRequest(BaseModel):
+    """Request model for unified analysis - upload once, get all results."""
+    resume_file: Optional[str] = Field(None, description="PDF file content as base64 (optional)")
+    job_description: str = Field(..., description="Job description text")
+    include_interview_questions: bool = Field(default=True, description="Generate interview questions")
+    include_skills_gap: bool = Field(default=True, description="Analyze skills gap")
+    include_resume_variations: bool = Field(default=True, description="Generate resume variations")
+    include_comparison: bool = Field(default=True, description="Compare to ideal resume")
+
+
+class UnifiedAnalysisResponse(BaseModel):
+    """Response model for unified analysis - all results in one response."""
+    # Parsed resume data
+    parsed_resume: ResumeParseResponse
+    
+    # Basic analysis
+    match_score: float
+    ats_score: float
+    matched_skills: List[str]
+    missing_skills: List[str]
+    
+    # AI Content
+    improved_summary: str
+    cover_letter: str
+    resume_tips: List[str]
+    
+    # Resume modifications
+    resume_modifications: List[ResumeModificationSuggestion]
+    
+    # Resume variations
+    resume_variations: List[str]
+    
+    # Interview questions
+    interview_questions: Optional[List[Dict[str, Any]]] = None
+    total_interview_questions: Optional[int] = None
+    
+    # Skills gap
+    skills_gap: Optional[Dict[str, Any]] = None
+    
+    # Comparison
+    comparison: Optional[Dict[str, Any]] = None
+    
+    # Metadata
+    processing_time: float
+    timestamp: str
 

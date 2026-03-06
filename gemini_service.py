@@ -135,14 +135,14 @@ COVER_LETTER:
     async def generate_content_async(self, resume: str, job_description: str) -> Dict[str, str]:
         """
         Generate AI content asynchronously.
-        
+
         Args:
             resume: Resume text content
             job_description: Job description text
-        
+
         Returns:
             Dictionary with 'improved_summary', 'cover_letter', and 'resume_variations'
-        
+
         Raises:
             AIGenerationException: If content generation fails
         """
@@ -157,7 +157,7 @@ COVER_LETTER:
             response = await loop.run_in_executor(
                 None,
                 lambda: self.model.generate_content(
-                    prompt,
+                    contents=prompt,
                     generation_config=self.generation_config
                 )
             )
@@ -242,8 +242,8 @@ Make each variation complete and ATS-friendly, incorporating keywords from the j
             response = await loop.run_in_executor(
                 None,
                 lambda: self.model.generate_content(
-                    variations_prompt,
-                    GenerationConfig(
+                    contents=variations_prompt,
+                    generation_config=GenerationConfig(
                         temperature=0.8,
                         top_p=0.9,
                         top_k=40,
@@ -479,8 +479,8 @@ Make sure questions are relevant to the specific job and candidate's experience.
         response = await loop.run_in_executor(
             None,
             lambda: get_gemini_service().model.generate_content(
-                prompt,
-                GenerationConfig(
+                contents=prompt,
+                generation_config=GenerationConfig(
                     temperature=0.7,
                     max_output_tokens=4096,
                 )
@@ -524,31 +524,233 @@ Make sure questions are relevant to the specific job and candidate's experience.
         }
 
 
-def _generate_fallback_questions(resume_text: str, job_description: str, num: int) -> List[Dict]:
-    """Generate fallback interview questions."""
-    return [
+def _generate_fallback_questions(resume_text: str, job_description: str, num: int = 15) -> List[Dict]:
+    """Generate fallback interview questions tailored to resume content."""
+    resume_lower = resume_text.lower()
+    job_lower = job_description.lower()
+    
+    # Detect resume keywords for tailored questions
+    has_leadership = any(word in resume_lower for word in ['led', 'managed', 'supervised', 'mentored', 'directed', 'head of'])
+    has_technical = any(word in resume_lower for word in ['python', 'java', 'javascript', 'code', 'developer', 'engineer', 'programming', 'software', 'database', 'sql', 'web', 'api', 'cloud', 'aws', 'azure', 'docker', 'kubernetes'])
+    has_teamwork = any(word in resume_lower for word in ['team', 'collaborated', 'worked with', 'cross-functional', 'stakeholder'])
+    has_achievements = any(word in resume_lower for word in ['achieved', 'increased', 'reduced', 'improved', 'saved', 'delivered', 'exceeded'])
+    has_communication = any(word in resume_lower for word in ['communicated', 'presented', 'wrote', 'documented', 'trained'])
+    has_project_mgmt = any(word in resume_lower for word in ['project', 'planning', 'budget', 'scrum', 'agile', 'kanban', 'milestone'])
+    
+    # Extract job requirements
+    job_words = set(re.findall(r'\b[a-z#+]{3,}\b', job_lower))
+    tech_skills = [w for w in job_words if w in ['python', 'java', 'javascript', 'sql', 'html', 'css', 'react', 'angular', 'node', 'django', 'flask', 'aws', 'azure', 'docker', 'kubernetes', 'git', 'linux', 'machine learning', 'data analysis', 'agile', 'scrum']]
+    
+    questions = []
+    
+    # BEHAVIORAL QUESTIONS
+    questions.extend([
         {
             "question": "Tell me about yourself and why you're interested in this role.",
             "category": "behavioral",
             "difficulty": "easy",
-            "answer_guidance": "Start with your current role, highlight relevant experience, and end with why this position excites you.",
-            "sample_answer": "I'm a software engineer with 5 years of experience in web development..."
-        },
-        {
-            "question": "Describe a challenging project you worked on and how you overcame the challenges.",
-            "category": "behavioral",
-            "difficulty": "medium",
-            "answer_guidance": "Use the STAR method (Situation, Task, Action, Result) to structure your answer.",
-            "sample_answer": "In my previous role, we needed to migrate a legacy system..."
+            "answer_guidance": "Start with your current role, highlight relevant experience, and end with why this position excites you. Keep it concise (2-3 minutes).",
+            "sample_answer": "I'm a professional with experience in [field]. Currently, I [current role]. I'm excited about this position because [specific reason related to job]."
         },
         {
             "question": "What are your greatest strengths and how do they relate to this position?",
             "category": "behavioral",
             "difficulty": "easy",
-            "answer_guidance": "Choose 2-3 strengths that directly match the job requirements.",
-            "sample_answer": "My greatest strengths are problem-solving and communication..."
+            "answer_guidance": "Choose 2-3 strengths that directly match the job requirements. Provide specific examples for each.",
+            "sample_answer": "My greatest strengths are [skill 1] and [skill 2]. For example, in my previous role at [company], I [specific achievement]."
+        },
+        {
+            "question": "Where do you see yourself in 5 years?",
+            "category": "behavioral",
+            "difficulty": "easy",
+            "answer_guidance": "Show ambition but also loyalty. Connect your goals to the company's growth and the role you're applying for.",
+            "sample_answer": "In 5 years, I see myself growing into a [senior role] where I can [specific impact]. I hope to [company goal] while developing my skills in [area]."
+        },
+        {
+            "question": "Why should we hire you over other candidates?",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Highlight your unique value proposition. Focus on what makes you specifically qualified for this role.",
+            "sample_answer": "You should hire me because I bring [unique combination of skills]. Specifically, [relevant achievement] demonstrates my ability to [job requirement]."
+        },
+        {
+            "question": "Describe a challenging problem you faced and how you solved it.",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Use STAR method. Focus on your problem-solving process and the results you achieved.",
+            "sample_answer": "At my previous job, we faced [problem]. I [action taken] which resulted in [specific positive outcome]."
         }
-    ][:num]
+    ])
+    
+    # Add leadership questions if detected
+    if has_leadership:
+        questions.extend([
+            {
+                "question": "Describe a time when you led a team through a challenging project.",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Use the STAR method: Situation, Task, Action, Result. Focus on your leadership decisions and the outcome.",
+                "sample_answer": "As a team leader, I faced a challenging project where [situation]. I [specific actions] which led to [result]."
+            },
+            {
+                "question": "How do you handle conflicts within your team?",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Show emotional intelligence and problem-solving skills. Give a specific example.",
+                "sample_answer": "When conflicts arise, I first [approach]. For example, when [situation], I [action] which resulted in [outcome]."
+            },
+            {
+                "question": "Tell me about a time you had to motivate a disengaged team.",
+                "category": "behavioral",
+                "difficulty": "hard",
+                "answer_guidance": "Demonstrate your leadership and interpersonal skills. Focus on strategies you used.",
+                "sample_answer": "I noticed my team was disengaged due to [reason]. I implemented [strategy] which resulted in [measurable improvement]."
+            }
+        ])
+    
+    # Add teamwork questions if detected
+    if has_teamwork:
+        questions.extend([
+            {
+                "question": "Describe a situation where you had to collaborate with a difficult team member.",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Focus on how you managed the situation professionally and achieved the team goal.",
+                "sample_answer": "I worked with a challenging team member by [approach]. We were able to [achieve goal] through [collaboration strategy]."
+            },
+            {
+                "question": "How do you handle working with cross-functional teams?",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Show you can communicate effectively with different stakeholders.",
+                "sample_answer": "I collaborate with cross-functional teams by [strategy]. This helps ensure [benefit] while addressing [challenge]."
+            }
+        ])
+    
+    # Add achievement questions if detected
+    if has_achievements:
+        questions.extend([
+            {
+                "question": "Tell me about your greatest professional achievement.",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Choose a specific, quantifiable achievement that relates to the job requirements.",
+                "sample_answer": "My greatest achievement was [specific accomplishment]. I [actions taken] which resulted in [measurable impact like % increase, $ saved, etc.]."
+            },
+            {
+                "question": "Describe a time you exceeded expectations.",
+                "category": "behavioral",
+                "difficulty": "medium",
+                "answer_guidance": "Focus on going above and beyond what was expected.",
+                "sample_answer": "I exceeded expectations when [situation]. I [what you did beyond expectations] which led to [result]."
+            }
+        ])
+    
+    # TECHNICAL QUESTIONS
+    if has_technical:
+        questions.extend([
+            {
+                "question": "Walk me through a technical project you're most proud of.",
+                "category": "technical",
+                "difficulty": "medium",
+                "answer_guidance": "Explain the problem, your approach, the technologies used, and the outcome. Be specific about your role.",
+                "sample_answer": "One project I'm proud of was [project name]. I used [technologies] to [what you built]. The result was [specific outcome]."
+            },
+            {
+                "question": f"Describe your experience with {tech_skills[0] if tech_skills else 'key technologies'}.",
+                "category": "technical",
+                "difficulty": "medium",
+                "answer_guidance": "Be specific about your experience level and provide examples of projects where you used this technology.",
+                "sample_answer": "I have [X years/months] of experience with [technology]. I've used it in [number of projects] including [specific example]."
+            },
+            {
+                "question": "How do you stay updated with the latest technology trends?",
+                "category": "technical",
+                "difficulty": "easy",
+                "answer_guidance": "Show commitment to continuous learning.",
+                "sample_answer": "I stay updated by [resources like blogs, courses, communities]. Recently, I've been learning about [recent technology]."
+            },
+            {
+                "question": "Describe a technical problem you couldn't solve. How did you handle it?",
+                "category": "technical",
+                "difficulty": "hard",
+                "answer_guidance": "Show problem-solving skills and humility. Explain what you learned.",
+                "sample_answer": "I encountered [problem] which I couldn't solve initially. I [steps taken] and eventually [resolution or learned approach]."
+            }
+        ])
+    
+    # Add communication questions if detected
+    if has_communication:
+        questions.extend([
+            {
+                "question": "Describe a time you had to explain a complex technical concept to a non-technical audience.",
+                "category": "technical",
+                "difficulty": "medium",
+                "answer_guidance": "Show communication skills and ability to simplify complex topics.",
+                "sample_answer": "I had to explain [concept] to [audience]. I used [simplification strategy] which helped them understand [key points]."
+            },
+            {
+                "question": "How do you handle documentation?",
+                "category": "technical",
+                "difficulty": "easy",
+                "answer_guidance": "Show you value proper documentation.",
+                "sample_answer": "I document my work by [approach]. This includes [types of documentation] to ensure [benefit]."
+            }
+        ])
+    
+    # Add project management questions if detected
+    if has_project_mgmt:
+        questions.extend([
+            {
+                "question": "How do you prioritize when managing multiple projects?",
+                "category": "situational",
+                "difficulty": "medium",
+                "answer_guidance": "Show organizational skills and ability to manage time effectively.",
+                "sample_answer": "I prioritize by [method]. I use [tools like JIRA, Trello, etc.] to track [projects/tasks] and ensure [outcome]."
+            },
+            {
+                "question": "Describe your experience with agile methodologies.",
+                "category": "technical",
+                "difficulty": "medium",
+                "answer_guidance": "Be specific about your role in agile teams.",
+                "sample_answer": "I've worked in agile teams for [duration]. My role included [responsibilities like sprint planning, daily standups, retrospectives]."
+            }
+        ])
+    
+    # SITUATIONAL QUESTIONS
+    questions.extend([
+        {
+            "question": "How would you handle a tight deadline with limited resources?",
+            "category": "situational",
+            "difficulty": "medium",
+            "answer_guidance": "Show problem-solving and adaptability.",
+            "sample_answer": "When facing tight deadlines, I [approach like prioritization, negotiation, efficient work]. This helps me deliver [result]."
+        },
+        {
+            "question": "What would you do if you disagreed with your manager's decision?",
+            "category": "situational",
+            "difficulty": "medium",
+            "answer_guidance": "Show professionalism and ability to handle disagreement constructively.",
+            "sample_answer": "If I disagreed, I would first [approach like understanding their perspective]. Then I would [how you communicate your view]."
+        },
+        {
+            "question": "How do you handle failure?",
+            "category": "situational",
+            "difficulty": "medium",
+            "answer_guidance": "Show resilience and ability to learn from mistakes.",
+            "sample_answer": "When I fail, I first [response]. Then I [learning process]. For example, when [specific failure], I [how you improved]."
+        },
+        {
+            "question": "What questions do you have about the role or company?",
+            "category": "behavioral",
+            "difficulty": "easy",
+            "answer_guidance": "Prepare thoughtful questions that show your interest in the role.",
+            "sample_answer": "I'm curious about [specific team aspect]. Also, what does success look like in this role for the first [time period]?"
+        }
+    ])
+    
+    # Ensure we have at least 15 questions
+    return questions[:max(num, 15)]
 
 
 def _extract_job_title(job_description: str) -> str:
@@ -560,7 +762,7 @@ def _extract_job_title(job_description: str) -> str:
     return "Target Position"
 
 
-def _extract_key_topics(job_description: str) -> List[str]:
+def _extract_key_topics(job_description: str) -> str:
     """Extract key topics/skills from job description."""
     import re
     words = re.findall(r'\b[a-z#+.]{3,}\b', job_description.lower())
@@ -620,8 +822,8 @@ Format as JSON:
         response = await loop.run_in_executor(
             None,
             lambda: get_gemini_service().model.generate_content(
-                prompt,
-                GenerationConfig(temperature=0.5, max_output_tokens=4096)
+                contents=prompt,
+                generation_config=GenerationConfig(temperature=0.5, max_output_tokens=4096)
             )
         )
         
@@ -642,7 +844,7 @@ def _generate_fallback_skills_gap(resume_text: str, job_description: str) -> Dic
     """Generate fallback skills gap analysis."""
     from skill_engine import calculate_match_score
     
-    score, missing = calculate_match_score(resume_text, job_description)
+    score, missing, matched = calculate_match_score(resume_text, job_description)
     matched_score = 100 - score
     
     return {
@@ -720,8 +922,8 @@ Format as JSON:
         response = await loop.run_in_executor(
             None,
             lambda: get_gemini_service().model.generate_content(
-                prompt,
-                GenerationConfig(temperature=0.5, max_output_tokens=4096)
+                contents=prompt,
+                generation_config=GenerationConfig(temperature=0.5, max_output_tokens=4096)
             )
         )
         
@@ -742,7 +944,7 @@ def _generate_fallback_comparison(user_resume_text: str, job_description: str) -
     from skill_engine import calculate_match_score
     from main import calculate_ats_score
     
-    score, missing = calculate_match_score(user_resume_text, job_description)
+    score, missing, matched = calculate_match_score(user_resume_text, job_description)
     ats = calculate_ats_score(user_resume_text, job_description)
     
     import re

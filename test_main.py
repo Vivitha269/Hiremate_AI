@@ -91,7 +91,7 @@ class TestSkillEngine:
         resume = "Python JavaScript React"
         job_description = "We need Python JavaScript React developer"
         
-        score, missing = calculate_match_score(resume, job_description)
+        score, missing, matched = calculate_match_score(resume, job_description)
         
         assert score > 0
         assert isinstance(missing, list)
@@ -101,14 +101,14 @@ class TestSkillEngine:
         resume = "Python JavaScript"
         job_description = "Looking for Go Rust developer"
         
-        score, missing = calculate_match_score(resume, job_description)
+        score, missing, matched = calculate_match_score(resume, job_description)
         
         assert score >= 0
         assert isinstance(missing, list)
     
     def test_calculate_match_score_empty_resume(self):
         """Test empty resume handling - should return job skills as missing."""
-        score, missing = calculate_match_score("", "Python developer")
+        score, missing, matched = calculate_match_score("", "Python developer")
         
         assert score == 0.0
         assert len(missing) > 0  # Job skills are now returned as missing
@@ -116,7 +116,7 @@ class TestSkillEngine:
     
     def test_calculate_match_score_empty_job(self):
         """Test empty job description handling."""
-        score, missing = calculate_match_score("Python developer", "")
+        score, missing, matched = calculate_match_score("Python developer", "")
         
         assert score == 0.0
         assert missing == []

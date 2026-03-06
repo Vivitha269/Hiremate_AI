@@ -17,8 +17,10 @@ Features:
 import logging
 import os
 import re
+import asyncio
+import random
 from contextlib import asynccontextmanager
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, status
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
@@ -29,6 +31,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from pydantic import ValidationError
+from google.generativeai import GenerationConfig
 
 from config import settings
 from exceptions import (
@@ -44,7 +47,9 @@ from models import (
     ResumeGenerateRequest, ResumeGenerateResponse,
     InterviewQuestionsRequest, InterviewQuestionsResponse,
     SkillsGapAnalysisRequest, SkillsGapAnalysisResponse,
-    ResumeComparisonRequest, ResumeComparisonResponse
+    ResumeComparisonRequest, ResumeComparisonResponse,
+    UnifiedAnalysisRequest, UnifiedAnalysisResponse, ResumeModificationSuggestion,
+    ResumeParseResponse
 )
 from pdf_utils import extract_text_from_pdf_safe
 from skill_engine import calculate_match_score
@@ -179,7 +184,7 @@ def generate_resume_tips(missing_skills: List[str], ats_score: float) -> List[st
 
 def generate_fallback_content(resume_text: str, job_description: str, missing_skills: List[str]) -> tuple:
     """
-    Generate summary and cover letter using templates when AI is unavailable.
+    Generate summary and cover letter using intelligent templates when AI is unavailable.
     
     Args:
         resume_text: Resume content
@@ -189,43 +194,283 @@ def generate_fallback_content(resume_text: str, job_description: str, missing_sk
     Returns:
         Tuple of (summary, cover_letter)
     """
-    # Extract key info from job description
+    # Extract job title from job description
     job_lines = job_description.split('\n')
     job_title = "Professional"
-    for line in job_lines[:3]:
-        if len(line.strip()) > 5:
-            job_title = line.strip()[:50]
-            break
+    company_name = "your organization"
     
-    # Extract skills mentioned in job
-    job_words = set(re.findall(r'\b[a-z]{3,}\b', job_description.lower()))
-    resume_words = set(re.findall(r'\b[a-z]{3,}\b', resume_text.lower()))
+    for line in job_lines[:5]:
+        line = line.strip()
+        # Look for job title patterns
+        if len(line) > 5 and len(line) < 80:
+            # Check if it looks like a job title (contains common words)
+            lower_line = line.lower()
+            if any(word in lower_line for word in ['engineer', 'developer', 'manager', 'analyst', 'designer', 'specialist', 'coordinator', 'consultant', 'assistant', 'associate']):
+                job_title = line.strip()[:60]
+                break
+            elif not job_title or job_title == "Professional":
+                job_title = line.strip()[:60]
+    
+    # Extract key requirements from job description
+    job_lower = job_description.lower()
+    
+    # Extract skills from job description (including special characters)
+    job_words = set(re.findall(r'\b[a-z+#\.]{3,}\b', job_lower))
+    resume_words = set(re.findall(r'\b[a-z+#\.]{3,}\b', resume_text.lower()))
     matched = job_words.intersection(resume_words)
     
-    # Generate summary
-    summary = f"""Experienced {job_title} with a proven track record of delivering results.
-Demonstrated expertise in {', '.join(list(matched)[:5]) if matched else 'various technologies'}.
-Strong background in implementing strategic initiatives and driving operational excellence.
-Quick learner with excellent problem-solving abilities and communication skills."""
+    # Generate personalized summary based on resume content
+    resume_lower = resume_text.lower()
+    
+    # Detect candidate's background - years of experience
+    experience_years = 0
+    if 'year' in resume_lower:
+        year_match = re.search(r'(\d+)\+?\s*year', resume_lower)
+        if year_match:
+            experience_years = int(year_match.group(1))
+    
+    # Detect key skills from resume
+    common_skills = ['python', 'java', 'javascript', 'sql', 'html', 'css', 'react', 'angular', 'node', 'django', 
+                     'flask', 'spring', 'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'git', 'linux', 'database',
+                     'machine learning', 'data analysis', 'project management', 'communication', 'leadership',
+                     'marketing', 'sales', 'design', 'testing', 'agile', 'scrum']
+    
+    found_skills = [s for s in common_skills if s in resume_lower]
+    
+    # Build personalized summary with multiple options
+    summary_templates = [
+        f"Results-driven professional with {experience_years}+ years of experience in {', '.join(found_skills[:3]) if found_skills else 'various domains'}. Demonstrated expertise in delivering high-impact projects and driving organizational success.",
+        f"Detail-oriented professional with strong background in {', '.join(found_skills[:3]) if found_skills else 'technical and business domains'}. Proven track record of achieving measurable results and exceeding performance targets.",
+        f"Dynamic professional combining technical proficiency in {', '.join(found_skills[:2]) if found_skills else 'multiple technologies'} with excellent communication and problem-solving abilities. Committed to continuous improvement and professional growth.",
+        f"Accomplished professional with extensive experience in {', '.join(found_skills[:3]) if found_skills else 'delivering value through innovative solutions'}. Skilled at adapting to new challenges and contributing to team success."
+    ]
+    
+    # Add job-specific details if we have matched skills
+    if matched:
+        summary_templates.append(
+            f"Professional with demonstrated expertise in {', '.join(list(matched)[:4]) if matched else 'relevant skills'}. "
+            f"Proven ability to leverage technical and interpersonal skills to drive business outcomes."
+        )
+    
+    summary = random.choice(summary_templates)
+    
+    # Add specific achievements if available in resume
+    achievement_keywords = ['achieved', 'increased', 'reduced', 'improved', 'led', 'managed', 'developed', 'created', 'implemented']
+    achievements = []
+    for keyword in achievement_keywords:
+        for sentence in resume_text.split('.'):
+            if keyword in sentence.lower() and len(sentence.strip()) > 20:
+                achievements.append(sentence.strip())
+                if len(achievements) >= 2:
+                    break
+        if len(achievements) >= 2:
+            break
+    
+    if achievements:
+        summary += f" Notable achievements include {achievements[0][:100]}."
     
     # Generate cover letter
-    skills_str = ', '.join(list(matched)[:5]) if matched else 'relevant technical skills'
-    missing_str = ', '.join(missing_skills[:3]) if missing_skills else 'additional skills'
+    skills_str = ', '.join(list(matched)[:4]) if matched else 'relevant technical and professional skills'
+    missing_str = ', '.join(missing_skills[:3]) if missing_skills else 'additional competencies'
     
+    # Extract company name if mentioned in job description
+    company_patterns = ['at ', 'with ', 'joining ']
+    for pattern in company_patterns:
+        for line in job_lines:
+            if pattern in line.lower():
+                parts = line.lower().split(pattern)
+                if len(parts) > 1:
+                    company_candidate = parts[1].strip()[:30]
+                    if company_candidate and len(company_candidate) > 2:
+                        company_name = company_candidate
+                        break
+    
+    # Build personalized cover letter
     cover_letter = f"""Dear Hiring Manager,
 
-I am writing to express my strong interest in the {job_title} position at your organization. With my background in {skills_str}, I am confident that I would be a valuable addition to your team.
+I am writing to express my strong interest in the {job_title} position at {company_name}. With my background in {skills_str}, I am confident that I would be a valuable addition to your team.
 
-In my career, I have demonstrated the ability to deliver results and drive success. My experience aligns well with your requirements, particularly in {skills_str}. While I notice you are looking for candidates with experience in {missing_str}, I am eager to learn and develop these skills quickly.
+"""
+    
+    # Add personalized paragraph based on matched skills
+    if matched:
+        matched_phrase = ' and '.join(list(matched)[:2]) if matched else 'the opportunity to apply my skills in a new environment'
+        cover_letter += f"In my career, I have developed strong expertise in {skills_str}. My experience has equipped me with the skills necessary to contribute effectively to your organization. I am particularly drawn to this position because {matched_phrase} aligns perfectly with my professional background.\n\n"
+    else:
+        cover_letter += f"In my career, I have developed a versatile skill set that enables me to adapt quickly to new challenges. I am excited about the opportunity to bring my abilities to your organization and contribute to your team's success.\n\n"
+    
+    # Add paragraph about missing skills/learning attitude
+    if missing_skills:
+        cover_letter += f"I am aware that this role requires skills in {missing_str}, and I am eager to develop these competencies further. I have a proven track record of quickly learning new skills and technologies, and I am committed to continuous professional development.\n\n"
+    
+    # Add closing paragraph
+    cover_letter += f"""I am enthusiastic about the opportunity to contribute to {company_name} and would welcome the chance to discuss how my background, skills, and enthusiasm would benefit your team.
 
-I am excited about the opportunity to contribute to your organization and would welcome the chance to discuss how my background and skills would benefit your team.
-
-Thank you for considering my application. I look forward to hearing from you soon.
+Thank you for considering my application. I look forward to the opportunity to speak with you about this position.
 
 Best regards,
 [Your Name]"""
     
     return summary, cover_letter
+
+
+def _generate_fallback_modifications(resume_text: str, job_description: str, missing_skills: List[str]) -> List[Dict]:
+    """Generate fallback resume modification suggestions when AI fails."""
+    
+    resume_lower = resume_text.lower()
+    
+    # Check what sections are missing
+    has_summary = 'summary' in resume_lower or 'objective' in resume_lower
+    has_achievements = any(word in resume_lower for word in ['achieved', 'increased', 'reduced', 'improved', 'led'])
+    
+    modifications = []
+    
+    # Check for summary
+    if not has_summary:
+        modifications.append({
+            "category": "summary",
+            "title": "Add Professional Summary",
+            "current_content": "Not present",
+            "suggested_content": "Results-driven professional with expertise in relevant skills and proven track record of delivering measurable results.",
+            "reason": "Professional summary increases interview chances by 30% as it gives recruiters a quick overview of your value proposition.",
+            "priority": "high",
+            "impact_score": 80
+        })
+    
+    # Check for quantifiable achievements
+    if not has_achievements:
+        modifications.append({
+            "category": "achievements",
+            "title": "Quantify Your Achievements",
+            "current_content": "Generic descriptions without numbers",
+            "suggested_content": "Increased sales by 45% | Managed team of 8 people | Reduced costs by $50K annually",
+            "reason": "Quantified achievements get 40% more callbacks as they provide concrete evidence of your impact.",
+            "priority": "high",
+            "impact_score": 90
+        })
+    
+    # Add missing skills suggestion
+    if missing_skills:
+        modifications.append({
+            "category": "keywords",
+            "title": "Add Missing Keywords",
+            "current_content": "Missing job-specific keywords",
+            "suggested_content": "Incorporate: " + ", ".join(missing_skills[:5]),
+            "reason": "ATS systems require keyword matching. Missing keywords can cause your resume to be filtered out.",
+            "priority": "high",
+            "impact_score": 85
+        })
+    
+    # Add action verbs suggestion
+    modifications.append({
+        "category": "experience",
+        "title": "Use Action Verbs",
+        "current_content": "Passive language usage",
+        "suggested_content": "Replace 'was responsible for' with: Led, Developed, Implemented, Achieved, Created",
+        "reason": "Action verbs make your accomplishments more impactful and demonstrate initiative.",
+        "priority": "medium",
+        "impact_score": 70
+    })
+    
+    # Add formatting suggestion
+    modifications.append({
+        "category": "format",
+        "title": "Improve Resume Formatting",
+        "current_content": "Check for consistent formatting",
+        "suggested_content": "Use consistent bullet points, font sizes, and spacing throughout the document",
+        "reason": "Clean formatting improves readability and ensures ATS systems can parse your resume correctly.",
+        "priority": "medium",
+        "impact_score": 65
+    })
+    
+    return modifications
+
+
+def _generate_fallback_interview_questions(resume_text: str, job_description: str) -> Dict:
+    """Generate fallback interview questions when AI fails."""
+    
+    resume_lower = resume_text.lower()
+    
+    # Detect common skills/experience to customize questions
+    has_leadership = any(word in resume_lower for word in ['led', 'managed', 'supervised', 'mentored'])
+    has_technical = any(word in resume_lower for word in ['python', 'java', 'code', 'developer', 'engineer'])
+    has_teamwork = any(word in resume_lower for word in ['team', 'collaborated', 'worked with'])
+    
+    questions = [
+        {
+            "question": "Tell me about yourself and why you're interested in this role.",
+            "category": "behavioral",
+            "difficulty": "easy",
+            "answer_guidance": "Start with your current role, highlight relevant experience, and end with why this position excites you.",
+            "sample_answer": "I'm a professional with experience in... I'm excited about this role because..."
+        }
+    ]
+    
+    if has_leadership:
+        questions.append({
+            "question": "Describe a time when you led a team through a challenging project.",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Use the STAR method: Situation, Task, Action, Result. Focus on your leadership decisions and the outcome.",
+            "sample_answer": "As a team leader, I faced a challenging project where..."
+        })
+    
+    if has_technical:
+        questions.append({
+            "question": "Walk me through a technical project you're most proud of.",
+            "category": "technical",
+            "difficulty": "medium",
+            "answer_guidance": "Explain the problem, your approach, the technologies used, and the outcome. Be specific about your role.",
+            "sample_answer": "One project I'm proud of was... where I used Python and Django to..."
+        })
+    
+    if has_teamwork:
+        questions.append({
+            "question": "Describe a situation where you had to collaborate with a difficult team member.",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Focus on how you managed the situation professionally and achieved the team goal.",
+            "sample_answer": "I worked with a challenging team member by..."
+        })
+    
+    # Add common questions
+    questions.extend([
+        {
+            "question": "What are your greatest strengths and how do they relate to this position?",
+            "category": "behavioral",
+            "difficulty": "easy",
+            "answer_guidance": "Choose 2-3 strengths that directly match the job requirements. Provide specific examples.",
+            "sample_answer": "My greatest strengths are problem-solving and communication..."
+        },
+        {
+            "question": "Where do you see yourself in 5 years?",
+            "category": "behavioral",
+            "difficulty": "easy",
+            "answer_guidance": "Show ambition but also loyalty. Connect your goals to the company's growth.",
+            "sample_answer": "In 5 years, I see myself growing into a role where I can..."
+        },
+        {
+            "question": "Why should we hire you over other candidates?",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Highlight your unique value proposition. Focus on what makes you specifically qualified for this role.",
+            "sample_answer": "You should hire me because..."
+        },
+        {
+            "question": "Describe a challenging problem you faced and how you solved it.",
+            "category": "behavioral",
+            "difficulty": "medium",
+            "answer_guidance": "Use STAR method. Focus on your problem-solving process and the results.",
+            "sample_answer": "I faced a challenging situation where..."
+        }
+    ])
+    
+    return {
+        "questions": questions[:10],
+        "total_questions": len(questions),
+        "job_title": "Target Position",
+        "key_topics": []
+    }
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -348,8 +593,8 @@ async def analyze_resume(
     
     # Calculate match score
     try:
-        score, missing_skills = calculate_match_score(resume_text, job_description)
-        logger.info(f"Match score calculated: {score}%")
+        score, missing_skills, matched_skills = calculate_match_score(resume_text, job_description)
+        logger.info(f"Match score calculated: {score}%, Matched: {len(matched_skills)}, Missing: {len(missing_skills)}")
     except Exception as e:
         logger.error(f"Error calculating match score: {str(e)}")
         raise HireMateException("Failed to calculate match score", status_code=500)
@@ -404,20 +649,49 @@ async def generate_resume_endpoint(request: ResumeGenerateRequest):
     """
     logger.info(f"Generating resume with template: {request.template_id}")
     
+    # Create ResumeData object - handle both list and string inputs
+    def ensure_list(value, field_name):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        # If it's a string, try to parse it as a list
+        if isinstance(value, str):
+            # Return as single item list if it's not empty
+            return [value] if value.strip() else []
+        return []
+    
+    # Handle experience and education - convert to dict if needed
+    experience_list = []
+    if request.experience:
+        for exp in request.experience:
+            if hasattr(exp, 'model_dump'):
+                experience_list.append(exp.model_dump())
+            elif isinstance(exp, dict):
+                experience_list.append(exp)
+    
+    education_list = []
+    if request.education:
+        for edu in request.education:
+            if hasattr(edu, 'model_dump'):
+                education_list.append(edu.model_dump())
+            elif isinstance(edu, dict):
+                education_list.append(edu)
+    
     # Create ResumeData object
     resume_data = ResumeData(
-        full_name=request.full_name,
-        email=request.email,
-        phone=request.phone,
-        location=request.location,
-        linkedin=request.linkedin,
-        portfolio=request.portfolio,
-        summary=request.summary,
-        skills=request.skills,
-        experience=[exp.model_dump() for exp in request.experience],
-        education=[edu.model_dump() for edu in request.education],
-        certifications=request.certifications,
-        languages=request.languages
+        full_name=request.full_name or "Your Name",
+        email=request.email or "email@example.com",
+        phone=request.phone or "",
+        location=request.location or "",
+        linkedin=request.linkedin or "",
+        portfolio=request.portfolio or "",
+        summary=request.summary or "",
+        skills=ensure_list(request.skills, "skills"),
+        experience=experience_list,
+        education=education_list,
+        certifications=ensure_list(request.certifications, "certifications"),
+        languages=ensure_list(request.languages, "languages")
     )
     
     # Generate resume HTML
@@ -498,7 +772,8 @@ async def generate_interview_questions(request: InterviewQuestionsRequest):
         return result
     except Exception as e:
         logger.error(f"Error generating interview questions: {str(e)}")
-        raise AIGenerationException("Failed to generate interview questions")
+        # Use fallback instead of raising exception
+        return _generate_fallback_interview_questions(request.resume_text, request.job_description)
 
 
 @app.post("/api/skills/gap-analysis", tags=["Skills"])
@@ -521,7 +796,8 @@ async def skills_gap_analysis(request: SkillsGapAnalysisRequest):
         return result
     except Exception as e:
         logger.error(f"Error in skills gap analysis: {str(e)}")
-        raise AIGenerationException("Failed to analyze skills gap")
+        # Use fallback instead of raising exception
+        return _generate_fallback_skills_gap(request.resume_text, request.job_description)
 
 
 @app.post("/api/resume/compare", tags=["Resume"])
@@ -545,7 +821,8 @@ async def compare_resumes(request: ResumeComparisonRequest):
         return result
     except Exception as e:
         logger.error(f"Error comparing resumes: {str(e)}")
-        raise AIGenerationException("Failed to compare resumes")
+        # Use fallback instead of raising exception
+        return _generate_fallback_comparison(request.user_resume_text, request.job_description)
 
 
 @app.post("/api/resume/parse", tags=["Resume"])
@@ -578,6 +855,286 @@ async def parse_resume(
         "skills": parsed_data.skills,
         "experience": parsed_data.experience,
         "education": parsed_data.education
+    }
+
+
+# ==================== UNIFIED ANALYSIS ENDPOINT ====================
+
+@app.post("/api/analyze/unified", tags=["Analysis"])
+@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")
+async def unified_analysis(
+    request: Request,
+    resume_file: UploadFile = File(..., description="PDF resume file"),
+    job_description: str = Form(..., description="Job description text"),
+    include_interview_questions: bool = Form(True, description="Generate interview questions"),
+    include_skills_gap: bool = Form(True, description="Analyze skills gap"),
+    include_resume_variations: bool = Form(True, description="Generate resume variations"),
+    include_comparison: bool = Form(True, description="Compare to ideal resume")
+):
+    """
+    Unified Analysis Endpoint - Upload resume ONCE, get ALL results!
+    
+    This endpoint performs all analyses in a single call:
+    - Resume parsing and extraction
+    - Match score & ATS scoring
+    - Skills analysis (matched/missing)
+    - AI-generated improved summary and cover letter
+    - Resume modification suggestions
+    - Resume variations (4 types)
+    - Interview questions
+    - Skills gap analysis
+    - Resume comparison
+    
+    Upload your resume once and get comprehensive career insights!
+    """
+    import time
+    start_time = time.time()
+    from datetime import datetime
+    
+    logger.info("Starting unified analysis")
+    
+    # Validate job description
+    if not job_description or len(job_description.strip()) < settings.MIN_JOB_DESCRIPTION_LENGTH:
+        raise InvalidJobDescriptionException(
+            f"Job description must be at least {settings.MIN_JOB_DESCRIPTION_LENGTH} characters"
+        )
+    
+    # Extract text from PDF
+    try:
+        resume_text = await extract_text_from_pdf_safe(resume_file, resume_file.filename)
+    except Exception as e:
+        logger.error(f"Error extracting PDF: {str(e)}")
+        raise EmptyFileException("Failed to process the uploaded resume")
+    
+    if not resume_text or not resume_text.strip():
+        raise EmptyFileException("Could not extract text from the resume")
+    
+    # Parse the resume
+    parsed_data = parse_resume_from_text(resume_text)
+    
+    # Calculate match score
+    score, missing_skills, matched_skills = calculate_match_score(resume_text, job_description)
+    ats_score = calculate_ats_score(resume_text, job_description)
+    
+    # Generate resume tips
+    resume_tips = generate_resume_tips(missing_skills, ats_score)
+    
+    # Generate AI content (summary + cover letter)
+    ai_generated = False
+    try:
+        ai_result = await generate_ai_content_async(resume_text, job_description)
+        improved_summary = ai_result.get("improved_summary", "")
+        cover_letter = ai_result.get("cover_letter", "")
+        resume_variations = ai_result.get("resume_variations", [])
+        ai_generated = True
+        logger.info("AI content generated successfully")
+    except Exception as e:
+        logger.warning(f"AI content generation failed, using fallback: {str(e)}")
+        # Use improved fallback template-based generation
+        improved_summary, cover_letter = generate_fallback_content(resume_text, job_description, missing_skills)
+        resume_variations = []
+    
+    # Generate resume modifications suggestions
+    try:
+        modifications = await generate_resume_modifications_async(resume_text, job_description, parsed_data)
+    except Exception as e:
+        logger.warning(f"Error generating modifications: {str(e)}")
+        # Use improved fallback modifications
+        modifications = _generate_fallback_modifications(resume_text, job_description, missing_skills)
+    
+    # Initialize optional results
+    interview_questions_result = None
+    skills_gap_result = None
+    comparison_result = None
+    
+    # Run optional analyses - use fallbacks if AI fails
+    if include_interview_questions:
+        try:
+            interview_questions_result = await generate_interview_questions_async(resume_text, job_description, 10, ["technical", "behavioral"])
+        except Exception as e:
+            logger.warning(f"Error generating interview questions: {str(e)}")
+            interview_questions_result = _generate_fallback_interview_questions(resume_text, job_description)
+    
+    if include_skills_gap:
+        try:
+            skills_gap_result = await generate_skills_gap_analysis_async(resume_text, job_description)
+        except Exception as e:
+            logger.warning(f"Error generating skills gap: {str(e)}")
+            skills_gap_result = _generate_fallback_skills_gap(resume_text, job_description)
+    
+    if include_comparison:
+        try:
+            comparison_result = await generate_resume_comparison_async(resume_text, job_description)
+        except Exception as e:
+            logger.warning(f"Error generating comparison: {str(e)}")
+            comparison_result = _generate_fallback_comparison(resume_text, job_description)
+    
+    processing_time = time.time() - start_time
+    
+    return UnifiedAnalysisResponse(
+        parsed_resume=ResumeParseResponse(
+            full_name=parsed_data.full_name,
+            email=parsed_data.email,
+            phone=parsed_data.phone,
+            location=parsed_data.location,
+            linkedin=parsed_data.linkedin,
+            summary=parsed_data.summary,
+            skills=parsed_data.skills,
+            experience=parsed_data.experience,
+            education=parsed_data.education
+        ),
+        match_score=score,
+        ats_score=ats_score,
+        matched_skills=matched_skills,
+        missing_skills=missing_skills,
+        improved_summary=improved_summary,
+        cover_letter=cover_letter,
+        resume_tips=resume_tips,
+        resume_modifications=modifications,
+        resume_variations=resume_variations,
+        interview_questions=interview_questions_result.get("questions") if interview_questions_result else None,
+        total_interview_questions=interview_questions_result.get("total_questions") if interview_questions_result else None,
+        skills_gap=skills_gap_result,
+        comparison=comparison_result,
+        processing_time=round(processing_time, 2),
+        timestamp=datetime.now().isoformat()
+    )
+
+
+async def generate_resume_modifications_async(resume_text: str, job_description: str, parsed_data) -> List[Dict]:
+    """Generate AI-powered resume modification suggestions."""
+    from gemini_service import get_gemini_service
+    
+    prompt = f"""
+You are an expert resume writer and career consultant. Analyze this resume against the job description 
+and provide specific, actionable modification suggestions.
+
+CURRENT RESUME:
+{resume_text}
+
+JOB DESCRIPTION:
+{job_description}
+
+Provide 5-7 specific modification suggestions. For each suggestion include:
+1. Category: summary/skills/experience/achievements/keywords
+2. Title: brief title of the suggestion
+3. Current Content: what the resume currently has (or "Not present")
+4. Suggested Content: what it should say instead
+5. Reason: why this change would improve the resume
+6. Priority: high/medium/low
+7. Impact Score: 0-100 (how much this improves the resume)
+
+Format as JSON array:
+[
+  {{
+    "category": "summary",
+    "title": "Strengthen Professional Summary",
+    "current_content": "Current summary text or 'Not present'",
+    "suggested_content": "Improved version",
+    "reason": "Why this helps",
+    "priority": "high",
+    "impact_score": 85
+  }}
+]
+
+Make suggestions specific and actionable, not generic advice.
+"""
+    
+    try:
+        import json
+        import re
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: get_gemini_service().model.generate_content(
+                contents=prompt,
+                generation_config=GenerationConfig(temperature=0.7, max_output_tokens=2048)
+            )
+        )
+        
+        # Try to parse JSON
+        json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception as e:
+        logger.error(f"Error in AI modification generation: {str(e)}")
+    
+    # Fallback modifications
+    return _generate_fallback_modifications(resume_text, job_description, [])
+
+
+def _generate_fallback_skills_gap(resume_text: str, job_description: str) -> Dict[str, Any]:
+    """Generate fallback skills gap analysis."""
+    from skill_engine import calculate_match_score
+    
+    score, missing, matched = calculate_match_score(resume_text, job_description)
+    matched_score = 100 - score
+    
+    # Extract common technical skills from job description
+    job_lower = job_description.lower()
+    common_tech = ['python', 'java', 'javascript', 'sql', 'html', 'css', 'react', 'angular', 'node', 'django', 
+                   'flask', 'aws', 'azure', 'docker', 'kubernetes', 'git', 'linux', 'machine learning']
+    
+    missing_tech = [s for s in common_tech if s in job_lower and s not in resume_text.lower()]
+    
+    return {
+        "matched_skills": [],
+        "missing_skills": missing[:10],
+        "skill_gaps": [
+            {
+                "skill": skill,
+                "importance": "high",
+                "current_level": "none",
+                "suggested_resources": [
+                    {"type": "course", "title": f"Learn {skill.title()}", "url": f"https://www.udemy.com/courses/search/?q={skill}"},
+                    {"type": "tutorial", "title": f"{skill.title()} Tutorial", "url": f"https://www.w3schools.com/{skill}/"}
+                ]
+            } for skill in missing_tech[:5]
+        ],
+        "overall_gap_score": matched_score,
+        "learning_priority": "high" if matched_score > 50 else "medium",
+        "recommended_courses": [
+            {"title": f"Master {skill}", "provider": "Udemy/Coursera", "url": f"https://www.coursera.org/search?query={skill}"}
+            for skill in missing_tech[:3]
+        ]
+    }
+
+
+def _generate_fallback_comparison(user_resume_text: str, job_description: str) -> Dict[str, Any]:
+    """Generate fallback resume comparison."""
+    from skill_engine import calculate_match_score
+    
+    score, missing, matched = calculate_match_score(user_resume_text, job_description)
+    ats = calculate_ats_score(user_resume_text, job_description)
+    
+    import re
+    job_keywords = set(re.findall(r'\b[a-z]{3,}\b', job_description.lower()))
+    resume_keywords = set(re.findall(r'\b[a-z]{3,}\b', user_resume_text.lower()))
+    found = list(job_keywords.intersection(resume_keywords))
+    missing_kw = list(job_keywords - resume_keywords)
+    
+    return {
+        "overall_score": score,
+        "ats_score": ats,
+        "comparison_items": [
+            {
+                "category": "Skills",
+                "user_resume": f"Has {len(found)} relevant skills",
+                "ideal_resume": "Should have all job-required skills",
+                "score": score,
+                "recommendations": [f"Add these skills: {', '.join(missing_kw[:5])}"]
+            }
+        ],
+        "keyword_analysis": {
+            "found": found[:10],
+            "missing": missing_kw[:10]
+        },
+        "improvement_suggestions": [
+            "Add more keywords from job description",
+            "Quantify your achievements",
+            "Include relevant certifications"
+        ],
+        "ideal_resume_summary": "An ideal resume should include all required skills from the job description, quantifiable achievements, and relevant certifications."
     }
 
 

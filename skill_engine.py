@@ -72,7 +72,7 @@ def extract_key_skills(text: str) -> set:
     return found_skills
 
 
-def calculate_match_score(resume: str, job_description: str) -> Tuple[float, List[str]]:
+def calculate_match_score(resume: str, job_description: str) -> Tuple[float, List[str], List[str]]:
     """
     Calculate skill match score between resume and job description.
     
@@ -81,7 +81,7 @@ def calculate_match_score(resume: str, job_description: str) -> Tuple[float, Lis
         job_description: Job description text
     
     Returns:
-        Tuple of (match_score, list of missing skills)
+        Tuple of (match_score, list of missing skills, list of matched skills)
     """
     try:
         # Validate inputs
@@ -91,63 +91,71 @@ def calculate_match_score(resume: str, job_description: str) -> Tuple[float, Lis
         
         if not job_description or not isinstance(job_description, str):
             logger.warning("Invalid job description provided")
-            return 0.0, []
+            return 0.0, [], []
         
-        # Extract words from both texts
+        # Extract key skills from both texts using the skill extraction
+        resume_skills = extract_key_skills(resume)
+        job_skills = extract_key_skills(job_description)
+        
+        # Also extract general words for broader matching
         resume_words = extract_words(resume)
         job_words = extract_words(job_description)
         
-        # Handle edge case of empty job description
-        if len(job_words) == 0:
-            logger.info("Job description is empty")
-            return 0.0, []
+        # Calculate matched and missing skills (focus on technical skills)
+        matched = resume_skills.intersection(job_skills)
+        missing_skills = job_skills - resume_skills
         
-        # Calculate matched and missing skills
-        matched = resume_words.intersection(job_words)
-        missing = job_words - resume_words
+        # Also check for general word matches (soft skills, domain terms)
+        general_matched = resume_words.intersection(job_words) - TECHNICAL_SKILLS
+        general_missing = job_words - resume_words - TECHNICAL_SKILLS
         
-        # Calculate match score as percentage
-        # Weight technical skills more heavily
-        matched_technical = matched.intersection(TECHNICAL_SKILLS)
-        job_technical = job_words.intersection(TECHNICAL_SKILLS)
-        
-        if len(job_technical) > 0:
-            technical_score = (len(matched_technical) / len(job_technical)) * 100
+        # Calculate match score
+        if len(job_skills) > 0:
+            technical_score = (len(matched) / len(job_skills)) * 100
         else:
             technical_score = 0
         
-        # Use standard word intersection as base score
-        base_score = (len(matched) / len(job_words)) * 100
-        
-        # Weighted final score (60% technical, 40% general)
-        if technical_score > 0:
-            final_score = (technical_score * 0.6) + (base_score * 0.4)
+        # Include general word matching for softer score
+        if len(job_words) > 0:
+            general_score = (len(general_matched) / len(job_words)) * 100
         else:
-            final_score = base_score
+            general_score = 0
+        
+        # Weighted final score (70% technical skills, 30% general terms)
+        if technical_score > 0 or general_score > 0:
+            final_score = (technical_score * 0.7) + (general_score * 0.3)
+        else:
+            final_score = 0
+        
+        # Ensure score is at least based on word overlap
+        if final_score == 0 and len(general_matched) > 0:
+            final_score = min(50, len(general_matched) * 5)
         
         # Round to 2 decimal places
-        final_score = round(final_score, 2)
+        final_score = round(min(100, final_score), 2)
         
-        # Get top missing skills (prioritize technical skills)
-        missing_list = list(missing)
+        # Get all missing skills (prioritize technical skills)
+        missing_list = list(missing_skills) + list(general_missing)
         
         # Sort missing skills to prioritize technical ones
         missing_technical = [s for s in missing_list if s in TECHNICAL_SKILLS]
         missing_general = [s for s in missing_list if s not in TECHNICAL_SKILLS]
         
-        # Combine: technical skills first, then general
-        prioritized_missing = missing_technical[:5] + missing_general[:5]
+        # Combine: technical skills first (more items), then general
+        prioritized_missing = missing_technical[:15] + missing_general[:10]
         
         logger.info(
             f"Match score calculated: {final_score}%. "
-            f"Matched: {len(matched)}, Missing: {len(missing)}"
+            f"Matched: {len(matched) + len(general_matched)}, Missing: {len(prioritized_missing)}"
         )
         
-        return final_score, prioritized_missing
+        # Return both matched technical skills and general matched words
+        all_matched = list(matched) + list(general_matched)[:30]
+        return final_score, prioritized_missing, all_matched
         
     except Exception as e:
         logger.error(f"Error calculating match score: {str(e)}")
-        return 0.0, []
+        return 0.0, [], []
 
 
 def get_resume_skills(resume: str) -> List[str]:
